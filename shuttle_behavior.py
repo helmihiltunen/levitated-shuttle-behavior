@@ -28,6 +28,7 @@ class ConnectToSim:
         self.system.enable_system()
 
 class BehaviorLogic:
+    #assigns a behavior logic to each shuttle
     def assign_behaviors(self, shuttles, pusher_ratio, mode="even"):
         behaviors = {}
         n = len(shuttles)
@@ -62,7 +63,10 @@ class BehaviorLogic:
 
         return behaviors
 
+
+
     def find_velocity(self, behavior_type, neighbor_distance):
+    #Changing agent speed to approprite one for the moment
         if behavior_type == "passive":
             if neighbor_distance < CAUTION_DISTANCE:
                 new_speed = BASE_SPEED * 0.25
@@ -85,24 +89,43 @@ class BehaviorLogic:
 
         return new_speed
 
+def find_closest_neighbor(self, current_shuttle, shuttles):
+#finding the closest shuttle to the current shuttle and calculating the distance
+    current_pos = current_shuttle.get_position()
+    min_distance = float("inf")
+
+    for other in shuttles:
+        if other.id == current_shuttle.id:
+            continue
+
+        other_pos = other.get_position()
+        distance = math.dist((current_pos.x, current_pos.y),(other_pos.x, other_pos.y))
+
+        if distance < min_distance:
+            min_distance = distance
+
+    return min_distance
+
 def main():
     #Establish connection to Planar Motor Tool and Planar Motor Simulation Tool
     connection = ConnectToSim()
-    # Finding shuttles and giving each of them id
+    # Finding shuttles
     xbots = bot.XbotCommands()
     shuttles = xbots.get_xbots()
 
     shuttles = shuttles[:TOTAL_SHUTTLES]
 
+    #assign behavior logics to shuttles
     logic = BehaviorLogic()
     behaviors = logic.assign_behaviors(shuttles, PUSHER_RATIO, ASSIGNMENT_MODE)
 
     while True:
         for shuttle in shuttles:
+            # Going through each shuttles state and changing their behavior if needed
             pos = shuttle.get_position()
             speed = shuttle.get_velocity()
 
-            neighbor_distance = 0.2 #temporary test value
+            neighbor_distance = find_closest_neighbor(shuttle,shuttles)
             new_speed = logic.find_velocity(behaviors[shuttle.id], neighbor_distance)
 
             shuttle.set_velocity(new_speed)
