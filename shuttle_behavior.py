@@ -22,8 +22,18 @@ ASSIGNMENT_MODE = "even"   # "even" or "random"
 MAX_ACCEL = 1.0
 GOAL_TOLERANCE = 0.01
 CMD_LABEL = 1
-SEGMENT_SIZE = 0.24         # meters
-OFFSET = 0.12               # meters
+
+SEGMENT_SIZE = 0.24
+OFFSET = 0.12
+
+# X-coordinates for each column
+X_COL_1 = OFFSET
+X_COL_2 = OFFSET + SEGMENT_SIZE
+X_COL_3 = OFFSET + 2 * SEGMENT_SIZE
+X_COL_4 = OFFSET + 3 * SEGMENT_SIZE
+
+#Start and goal rows
+SPECIAL_ROWS = [0, 1, 6, 7, 12, 13, 18, 19]
 
 class ConnectToSim:
     def __init__(self):
@@ -113,16 +123,41 @@ def find_closest_neighbor(current_shuttle_id, shuttles):
 
     return min_distance
 
+def row_to_y(row_index):
+    return row_index * SEGMENT_SIZE + OFFSET
 
-def tile_to_coord(tile_id, columns=8):
-#changes tile numbers to coordinates for the simulation
-    row = (tile_id - 1) // columns
-    col = (tile_id - 1) % columns
 
-    x = col * SEGMENT_SIZE + OFFSET
-    y = row * SEGMENT_SIZE + OFFSET
+def tile_to_coord(tile_id):
+    """
+    Muuntaa tile-id:n oikeaksi koordinaatiksi kuvan layoutissa:
 
-    return (x, y)
+    1-8   = vasen erikoissarake
+    9-28  = vasen pystykaista
+    29-48 = oikea pystykaista
+    49-56 = oikea erikoissarake
+    """
+    # Vasen erikoissarake
+    if 1 <= tile_id <= 8:
+        row = SPECIAL_ROWS[tile_id - 1]
+        return (X_COL_1, row_to_y(row))
+
+    # Vasen pystykaista
+    elif 9 <= tile_id <= 28:
+        row = tile_id - 9
+        return (X_COL_2, row_to_y(row))
+
+    # Oikea pystykaista
+    elif 29 <= tile_id <= 48:
+        row = tile_id - 29
+        return (X_COL_3, row_to_y(row))
+
+    # Oikea erikoissarake
+    elif 49 <= tile_id <= 56:
+        row = SPECIAL_ROWS[tile_id - 49]
+        return (X_COL_4, row_to_y(row))
+
+    else:
+        raise ValueError(f"Unsupported tile_id: {tile_id}")
 
 START_GOAL_8 = {
     1: 53,
@@ -156,23 +191,87 @@ def assign_goals(shuttles, total_shuttles):
     mapping = get_start_goal_pairs(total_shuttles)
     start_tiles = list(mapping.keys())
     goals = {}
+    start_info = {}
 
     for shuttle_id, start_tile in zip(shuttles, start_tiles):
         goal_tile = mapping[start_tile]
-        goals[shuttle_id] = tile_to_coord(goal_tile)
+
+        start_info[shuttle_id] = {
+            "start_tile": start_tile,
+            "start_coord": tile_to_coord(start_tile)
+        }
+
+        goals[shuttle_id] = {
+            "goal_tile": goal_tile,
+            "goal_coord": tile_to_coord(goal_tile)
+        }
 
         print(
             f"Shuttle {shuttle_id}: "
             f"start tile {start_tile} -> goal tile {goal_tile}, "
-            f"goal coord {goals[shuttle_id]}"
+            f"goal coord {goals[shuttle_id]['goal_coord']}"
         )
 
-    return goals
+    return start_info, goals
 
-def distance_to_goal(shuttle_id, goals):
+def distance_to_point(shuttle_id, point):
     x, y = get_xy(shuttle_id)
-    goal_x, goal_y = goals[shuttle_id]
-    return math.dist((x, y), (goal_x, goal_y))
+    return math.dist((x, y), point)
+
+def get_directional_lane_x(start_coord, goal_coord):
+    _, start_y = start_coord
+    _, goal_y = goal_coord
+
+    if goal_y > start_y:
+        return X_COL_3
+    elif goal_y < start_y:
+        return X_COL_2
+    else:
+        start_x, _ = start_coord
+        if abs(start_x - X_COL_2) <= abs(start_x - X_COL_3):
+            return X_COL_2
+        else:
+            return X_COL_3
+
+def move_to_point(shuttle_id, target, speed):
+    target_x, target_y = target
+
+    bot.linear_motion_si(
+        cmd_label=CMD_LABEL,
+        xbot_id=shuttle_id,
+        position_mode=pm.POSITIONMODE.ABSOLUTE,
+        path_type=pm.LINEARPATHTYPE.DIRECT,
+        target_xmeters=target_x,
+        target_ymeters=target_y,
+        final_speed_meters_ps=0.0,
+        max_speed_meters_ps=speed,
+        max_acceleration_meters_ps2=MAX_ACCEL,
+        corner_radius=0.0
+    )
+
+def build_route(start_coord, goal_coord):
+    start_x, start_y = start_coord
+    goal_x, goal_y = goal_coord
+
+    lane_x = get_directional_lane_x(start_coord, goal_coord)
+
+    wp1 = (lane_x, start_y)
+    wp2 = (lane_x, goal_y)
+    wp3 = (goal_x, goal_y)
+
+    route = []
+
+    # lisää waypoint vain jos siinä ei jo olla
+    if math.dist((start_x, start_y), wp1) > GOAL_TOLERANCE:
+        route.append(wp1)
+
+    if math.dist(route[-1] if route else (start_x, start_y), wp2) > GOAL_TOLERANCE:
+        route.append(wp2)
+
+    if math.dist(route[-1] if route else (start_x, start_y), wp3) > GOAL_TOLERANCE:
+        route.append(wp3)
+
+    return route
 
 def main():
     #Establish connection to Planar Motor Tool and Planar Motor Simulation Tool
@@ -189,46 +288,77 @@ def main():
 
     logic = BehaviorLogic()
     behaviors = logic.assign_behaviors(shuttles, PUSHER_RATIO, ASSIGNMENT_MODE)
-    goals = assign_goals(shuttles, TOTAL_SHUTTLES)
+    start_info, goals = assign_goals(shuttles, TOTAL_SHUTTLES)
 
     print("Shuttles:", shuttles)
     print("Behaviors:", behaviors)
     print("Goals:", goals)
 
-    all_goal_x = [goals[shuttle][0] for shuttle in shuttles]
-    all_goal_y = [goals[shuttle][1] for shuttle in shuttles]
+    #Routes and phases
+    routes = {}
+    route_phase = {}
+    command_sent_for_phase = {}
+
+    for shuttle in shuttles:
+        start_coord = start_info[shuttle]["start_coord"]
+        goal_coord = goals[shuttle]["goal_coord"]
+
+        routes[shuttle] = build_route(start_coord, goal_coord)
+        route_phase[shuttle] = 0
+        command_sent_for_phase[shuttle] = -1
+
+    print("Shuttles:", shuttles)
+    print("Behaviors:", behaviors)
+
+    for shuttle in shuttles:
+        print(f"Shuttle {shuttle} route: {routes[shuttle]}")
 
     while True:
+        all_done = True
         for shuttle in shuttles:
+            phase = route_phase[shuttle]
+
+            if phase >= len(routes[shuttle]):
+                continue
+
+            all_done = False
+
             neighbor_distance = find_closest_neighbor(shuttle, shuttles)
             new_speed = logic.find_velocity(behaviors[shuttle],
                                             neighbor_distance)
+            current_target = routes[shuttle][phase]
 
-            goal_x, goal_y = goals[shuttle]
+            # Jos ollaan jo waypointissa, siirrytään seuraavaan vaiheeseen
+            if distance_to_point(shuttle, current_target) <= GOAL_TOLERANCE:
+                route_phase[shuttle] += 1
 
-            if distance_to_goal(shuttle, goals) > GOAL_TOLERANCE:
-                bot.linear_motion_si(
-                    cmd_label=CMD_LABEL,
-                    xbot_id=shuttle,
-                    position_mode=pm.POSITIONMODE.ABSOLUTE,
-                    path_type=pm.LINEARPATHTYPE.DIRECT,
-                    target_xmeters=goal_x,
-                    target_ymeters=goal_y,
-                    final_speed_meters_ps=0.0,
-                    max_speed_meters_ps=new_speed,
-                    max_acceleration_meters_ps2=MAX_ACCEL,
-                    corner_radius=0.0
-                )
+                if route_phase[shuttle] >= len(routes[shuttle]):
+                    print(f"Shuttle {shuttle} reached final goal.")
+                    continue
+
+                phase = route_phase[shuttle]
+                current_target = routes[shuttle][phase]
+
+            # Lähetä komento vain kerran per vaihe
+            if command_sent_for_phase[shuttle] != phase:
+                move_to_point(shuttle, current_target, new_speed)
+                command_sent_for_phase[shuttle] = phase
 
             print(
                 f"shuttle={shuttle}, "
                 f"behavior={behaviors[shuttle]}, "
+                f"phase={phase + 1}/{len(routes[shuttle])}, "
                 f"dist={neighbor_distance:.3f}, "
                 f"speed={new_speed:.3f}, "
-                f"goal=({goal_x:.3f}, {goal_y:.3f})"
+                f"target=({current_target[0]:.3f}, {current_target[1]:.3f})"
             )
 
+        if all_done:
+            print("All shuttles reached their goals.")
+            break
+
         time.sleep(LOOP_DELAY)
+
 
 if __name__ == "__main__":
     main()
