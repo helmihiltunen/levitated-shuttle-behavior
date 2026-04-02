@@ -15,7 +15,7 @@ import random
 #Parameters
 TOTAL_SHUTTLES = 16
 PUSHER_RATIO = 0.75
-LOOP_DELAY = 0.1
+LOOP_DELAY = 0.001
 BASE_SPEED = 0.2
 
 PASSIVE_SAFE_DISTANCE = 0.30
@@ -181,13 +181,33 @@ def get_start_goal_pairs(total_shuttles):
 
 
 def assign_goals(shuttles, total_shuttles):
-    #Find needed info about start and goal points
+    #assigning goal coordinates for current shuttle
     mapping = get_start_goal_pairs(total_shuttles)
-    start_tiles = list(mapping.keys())
-    goals = {}
-    start_info = {}
 
-    for shuttle_id, start_tile in zip(shuttles, start_tiles):
+    start_tiles = list(mapping.keys())
+    start_tile_coords = {tile: tile_to_coord(tile) for tile in start_tiles}
+
+    start_info = {}
+    goals = {}
+
+    candidates = []
+    for shuttle_id in shuttles:
+        sx, sy = get_xy(shuttle_id)
+        for start_tile, coord in start_tile_coords.items():
+            dist = math.dist((sx, sy), coord)
+            candidates.append((dist, shuttle_id, start_tile))
+
+    candidates.sort(key=lambda x: x[0])
+
+    assigned_shuttles = set()
+    assigned_tiles = set()
+
+    for dist, shuttle_id, start_tile in candidates:
+        if shuttle_id in assigned_shuttles:
+            continue
+        if start_tile in assigned_tiles:
+            continue
+
         goal_tile = mapping[start_tile]
 
         start_info[shuttle_id] = {
@@ -200,11 +220,8 @@ def assign_goals(shuttles, total_shuttles):
             "goal_coord": tile_to_coord(goal_tile)
         }
 
-        print(
-            f"Shuttle {shuttle_id}: "
-            f"start tile {start_tile} -> goal tile {goal_tile}, "
-            f"goal coord {goals[shuttle_id]['goal_coord']}"
-        )
+        assigned_shuttles.add(shuttle_id)
+        assigned_tiles.add(start_tile)
 
     return start_info, goals
 
@@ -333,22 +350,22 @@ def point_is_occupied(point, current_shuttle_id, shuttles, threshold=WAYPOINT_BL
     return False
 
 
-def choose_speed(shuttle_id, shuttles, current_target, behavior_type):
+def choose_speed(shuttle_id, shuttles, current_target, behavior_type, logic):
     #choosing speed based on whether next waypoint is occupied
     # and the distance to the closest neighbor in front of current shuttle
-    neighbor_distance = find_closest_forward_neighbor(
-        shuttle_id,
-        shuttles,
-        current_target
-    )
+        neighbor_distance = find_closest_forward_neighbor(
+            shuttle_id,
+            shuttles,
+            current_target
+        )
 
-    speed = BehaviorLogic().find_velocity(behavior_type, neighbor_distance)
+        speed = logic.find_velocity(behavior_type, neighbor_distance)
 
-    if point_is_occupied(current_target, shuttle_id, shuttles):
-        if distance_to_point(shuttle_id, current_target) > GOAL_TOLERANCE:
-            speed = 0.0
+        if point_is_occupied(current_target, shuttle_id, shuttles):
+            if distance_to_point(shuttle_id, current_target) > GOAL_TOLERANCE:
+                speed = 0.0
 
-    return speed, neighbor_distance
+        return speed, neighbor_distance
 
 
 def main():
@@ -371,18 +388,17 @@ def main():
     route_phase = {}
 
     for shuttle in shuttles:
-        start_coord = start_info[shuttle]["start_coord"]
+        actual_start_coord = get_xy(shuttle)
         goal_coord = goals[shuttle]["goal_coord"]
 
-        routes[shuttle] = build_route(start_coord, goal_coord)
+        routes[shuttle] = build_route(actual_start_coord, goal_coord)
         route_phase[shuttle] = 0
 
-        lane_x = get_directional_lane_x(start_coord, goal_coord)
+        lane_x = get_directional_lane_x(actual_start_coord, goal_coord)
         print(
             f"Shuttle {shuttle}: "
-            f"start={start_coord}, goal={goal_coord}, "
-            f"lane_x={lane_x}, route={routes[shuttle]}"
-        )
+            f"actual_start={actual_start_coord}, goal={goal_coord}, "
+            f"lane_x={lane_x}, route={routes[shuttle]}")
 
     print("Shuttles:", shuttles)
     print("Behaviors:", behaviors)
@@ -409,11 +425,13 @@ def main():
                 shuttle_id=shuttle,
                 shuttles=shuttles,
                 current_target=current_target,
-                behavior_type=behaviors[shuttle]
+                behavior_type=behaviors[shuttle],
+                logic=logic
             )
 
-            # 5. send new movement command
-            move_to_point(shuttle, current_target, new_speed)
+            # 5. send new movement command if it isn't zero
+            if new_speed > 1e-6:
+                move_to_point(shuttle, current_target, new_speed)
 
             dist_text = "inf" if neighbor_distance == float("inf") else f"{neighbor_distance:.3f}"
             occupied_text = point_is_occupied(current_target, shuttle, shuttles)
