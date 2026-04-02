@@ -12,12 +12,23 @@ import time
 import math
 import random
 
-TOTAL_SHUTTLES = 8
-PUSHER_RATIO = 0.25
+#Parameters
+TOTAL_SHUTTLES = 16
+PUSHER_RATIO = 0.75
 LOOP_DELAY = 0.1
 BASE_SPEED = 0.2
-SAFE_DISTANCE = 0.20
-CAUTION_DISTANCE = 0.10
+
+PASSIVE_SAFE_DISTANCE = 0.30
+PASSIVE_CAUTION_DISTANCE = 0.15
+PASSIVE_STOP_DISTANCE = 0.08
+
+PUSHER_SAFE_DISTANCE = 0.18
+PUSHER_CAUTION_DISTANCE = 0.08
+PUSHER_STOP_DISTANCE = 0.04
+
+WAYPOINT_BLOCK_DISTANCE = 0.06
+SAME_LANE_THRESHOLD = 0.08
+
 ASSIGNMENT_MODE = "even"   # "even" or "random"
 MAX_ACCEL = 1.0
 GOAL_TOLERANCE = 0.01
@@ -32,17 +43,20 @@ X_COL_2 = OFFSET + SEGMENT_SIZE
 X_COL_3 = OFFSET + 2 * SEGMENT_SIZE
 X_COL_4 = OFFSET + 3 * SEGMENT_SIZE
 
-#Start and goal rows
+# Start and goal rows
 SPECIAL_ROWS = [0, 1, 6, 7, 12, 13, 18, 19]
 
+
 class ConnectToSim:
+    #Establish connection to simulation
     def __init__(self):
-        #initializing and connecting to simulation in pmst
         sys.auto_search_and_connect_to_pmc()
         sys.gain_mastership()
 
+
 class BehaviorLogic:
     def assign_behaviors(self, shuttles, pusher_ratio, mode="even"):
+        #assigning behavior logics for each shuttle
         behaviors = {}
         n = len(shuttles)
         pusher_count = int(n * pusher_ratio)
@@ -75,83 +89,60 @@ class BehaviorLogic:
 
         return behaviors
 
-
-
     def find_velocity(self, behavior_type, neighbor_distance):
-    #Changing agent speed to approprite one for the moment
+    #Finding movement speed based on behavior logic
+        if neighbor_distance == float("inf"):
+            return BASE_SPEED
+
         if behavior_type == "passive":
-            if neighbor_distance < CAUTION_DISTANCE:
-                new_speed = BASE_SPEED * 0.25
-
-            elif neighbor_distance < SAFE_DISTANCE:
-                new_speed = BASE_SPEED * 0.5
-
+            if neighbor_distance < PASSIVE_STOP_DISTANCE:
+                return 0.0
+            elif neighbor_distance < PASSIVE_CAUTION_DISTANCE:
+                return BASE_SPEED * 0.25
+            elif neighbor_distance < PASSIVE_SAFE_DISTANCE:
+                return BASE_SPEED * 0.5
             else:
-                new_speed = BASE_SPEED
+                return BASE_SPEED
 
         elif behavior_type == "pusher":
-            if neighbor_distance < CAUTION_DISTANCE:
-                new_speed = BASE_SPEED * 0.75
-
-            elif neighbor_distance < SAFE_DISTANCE:
-                new_speed = BASE_SPEED * 1.2
-
+            if neighbor_distance < PUSHER_STOP_DISTANCE:
+                return 0.0
+            elif neighbor_distance < PUSHER_CAUTION_DISTANCE:
+                return BASE_SPEED * 0.90
+            elif neighbor_distance < PUSHER_SAFE_DISTANCE:
+                return BASE_SPEED * 1.40
             else:
-                new_speed = BASE_SPEED
+                return BASE_SPEED * 1.15
 
-        return new_speed
+        return BASE_SPEED
 
 def get_xy(shuttle_id):
+    #Find xy position
     status = bot.get_xbot_status(shuttle_id)
     pos = status.feedback_position_si
     return pos[0], pos[1]
 
 
-def find_closest_neighbor(current_shuttle_id, shuttles):
-    current_x, current_y = get_xy(current_shuttle_id)
-    min_distance = float("inf")
-
-    for other_id in shuttles:
-        if other_id == current_shuttle_id:
-            continue
-
-        other_x, other_y = get_xy(other_id)
-        distance = math.dist((current_x, current_y), (other_x, other_y))
-
-        if distance < min_distance:
-            min_distance = distance
-
-    return min_distance
+def distance_between_points(a, b):
+    return math.dist(a, b)
 
 def row_to_y(row_index):
     return row_index * SEGMENT_SIZE + OFFSET
 
-
 def tile_to_coord(tile_id):
-    """
-    Muuntaa tile-id:n oikeaksi koordinaatiksi kuvan layoutissa:
-
-    1-8   = vasen erikoissarake
-    9-28  = vasen pystykaista
-    29-48 = oikea pystykaista
-    49-56 = oikea erikoissarake
-    """
-    # Vasen erikoissarake
+    #Find coordinates for the middle point of each tile
     if 1 <= tile_id <= 8:
         row = SPECIAL_ROWS[tile_id - 1]
         return (X_COL_1, row_to_y(row))
 
-    # Vasen pystykaista
     elif 9 <= tile_id <= 28:
         row = tile_id - 9
         return (X_COL_2, row_to_y(row))
 
-    # Oikea pystykaista
     elif 29 <= tile_id <= 48:
         row = tile_id - 29
         return (X_COL_3, row_to_y(row))
 
-    # Oikea erikoissarake
     elif 49 <= tile_id <= 56:
         row = SPECIAL_ROWS[tile_id - 49]
         return (X_COL_4, row_to_y(row))
@@ -159,15 +150,16 @@ def tile_to_coord(tile_id):
     else:
         raise ValueError(f"Unsupported tile_id: {tile_id}")
 
+# Start tile number: Goal tile number for 8 and 16 bots
 START_GOAL_8 = {
     1: 53,
     2: 54,
     3: 55,
     4: 56,
-    5: 49,
-    6: 50,
-    7: 51,
-    8: 52,
+    49: 5,
+    50: 6,
+    51: 7,
+    52: 8,
 }
 
 START_GOAL_16 = {
@@ -179,6 +171,7 @@ START_GOAL_16 = {
 
 
 def get_start_goal_pairs(total_shuttles):
+    #Choosing right start and goal points for the shuttle count
     if total_shuttles == 8:
         return START_GOAL_8
     elif total_shuttles == 16:
@@ -188,6 +181,7 @@ def get_start_goal_pairs(total_shuttles):
 
 
 def assign_goals(shuttles, total_shuttles):
+    #Find needed info about start and goal points
     mapping = get_start_goal_pairs(total_shuttles)
     start_tiles = list(mapping.keys())
     goals = {}
@@ -214,28 +208,26 @@ def assign_goals(shuttles, total_shuttles):
 
     return start_info, goals
 
+
 def distance_to_point(shuttle_id, point):
+    #Calculate distance to given point
     x, y = get_xy(shuttle_id)
     return math.dist((x, y), point)
 
-def get_directional_lane_x(start_coord, goal_coord):
-    _, start_y = start_coord
-    _, goal_y = goal_coord
 
-    if goal_y > start_y:
-        return X_COL_3
-    elif goal_y < start_y:
+def get_directional_lane_x(start_coord, goal_coord):
+    #assigning lane for movement along y axis
+    start_x, _ = start_coord
+
+    if start_x <= X_COL_2:
         return X_COL_2
-    else:
-        start_x, _ = start_coord
-        if abs(start_x - X_COL_2) <= abs(start_x - X_COL_3):
-            return X_COL_2
-        else:
-            return X_COL_3
+
+    return X_COL_3
+
 
 def move_to_point(shuttle_id, target, speed):
     target_x, target_y = target
-
+    #Move command to next waypoint
     bot.linear_motion_si(
         cmd_label=CMD_LABEL,
         xbot_id=shuttle_id,
@@ -249,7 +241,9 @@ def move_to_point(shuttle_id, target, speed):
         corner_radius=0.0
     )
 
+
 def build_route(start_coord, goal_coord):
+    #Calculate waypoints for the shuttles
     start_x, start_y = start_coord
     goal_x, goal_y = goal_coord
 
@@ -261,7 +255,6 @@ def build_route(start_coord, goal_coord):
 
     route = []
 
-    # lisää waypoint vain jos siinä ei jo olla
     if math.dist((start_x, start_y), wp1) > GOAL_TOLERANCE:
         route.append(wp1)
 
@@ -273,8 +266,92 @@ def build_route(start_coord, goal_coord):
 
     return route
 
+
+def advance_phase_if_needed(shuttle_id, routes, route_phase):
+    #Assigning new waypoint if shuttle has reached previous one
+    while route_phase[shuttle_id] < len(routes[shuttle_id]):
+        current_target = routes[shuttle_id][route_phase[shuttle_id]]
+
+        if distance_to_point(shuttle_id, current_target) <= GOAL_TOLERANCE:
+            route_phase[shuttle_id] += 1
+        else:
+            break
+
+
+def find_closest_forward_neighbor(current_shuttle_id, shuttles, current_target):
+    #Calculate distance to the closest shuttle in front of current shuttle
+    current_x, current_y = get_xy(current_shuttle_id)
+    target_x, target_y = current_target
+
+    move_dx = target_x - current_x
+    move_dy = target_y - current_y
+    move_len = math.hypot(move_dx, move_dy)
+
+    if move_len < 1e-9:
+        return float("inf")
+
+    dir_x = move_dx / move_len
+    dir_y = move_dy / move_len
+
+    min_forward_distance = float("inf")
+
+    for other_id in shuttles:
+        if other_id == current_shuttle_id:
+            continue
+
+        other_x, other_y = get_xy(other_id)
+
+        rel_x = other_x - current_x
+        rel_y = other_y - current_y
+
+        forward_projection = rel_x * dir_x + rel_y * dir_y
+        if forward_projection <= 0:
+            continue
+
+        lateral_distance = abs(rel_x * dir_y - rel_y * dir_x)
+        if lateral_distance > SAME_LANE_THRESHOLD:
+            continue
+
+        distance = math.hypot(rel_x, rel_y)
+
+        if distance < min_forward_distance:
+            min_forward_distance = distance
+
+    return min_forward_distance
+
+
+def point_is_occupied(point, current_shuttle_id, shuttles, threshold=WAYPOINT_BLOCK_DISTANCE):
+    #Check if another shuttle is too close to a waypoint
+    for other_id in shuttles:
+        if other_id == current_shuttle_id:
+            continue
+
+        other_pos = get_xy(other_id)
+        if distance_between_points(point, other_pos) < threshold:
+            return True
+
+    return False
+
+
+def choose_speed(shuttle_id, shuttles, current_target, behavior_type):
+    #choosing speed based on whether next waypoint is occupied
+    # and the distance to the closest neighbor in front of current shuttle
+    neighbor_distance = find_closest_forward_neighbor(
+        shuttle_id,
+        shuttles,
+        current_target
+    )
+
+    speed = BehaviorLogic().find_velocity(behavior_type, neighbor_distance)
+
+    if point_is_occupied(current_target, shuttle_id, shuttles):
+        if distance_to_point(shuttle_id, current_target) > GOAL_TOLERANCE:
+            speed = 0.0
+
+    return speed, neighbor_distance
+
+
 def main():
-    #Establish connection to Planar Motor Tool and Planar Motor Simulation Tool
     connection = ConnectToSim()
 
     xbot_ids = bot.get_xbot_ids()
@@ -290,14 +367,8 @@ def main():
     behaviors = logic.assign_behaviors(shuttles, PUSHER_RATIO, ASSIGNMENT_MODE)
     start_info, goals = assign_goals(shuttles, TOTAL_SHUTTLES)
 
-    print("Shuttles:", shuttles)
-    print("Behaviors:", behaviors)
-    print("Goals:", goals)
-
-    #Routes and phases
     routes = {}
     route_phase = {}
-    command_sent_for_phase = {}
 
     for shuttle in shuttles:
         start_coord = start_info[shuttle]["start_coord"]
@@ -305,50 +376,54 @@ def main():
 
         routes[shuttle] = build_route(start_coord, goal_coord)
         route_phase[shuttle] = 0
-        command_sent_for_phase[shuttle] = -1
+
+        lane_x = get_directional_lane_x(start_coord, goal_coord)
+        print(
+            f"Shuttle {shuttle}: "
+            f"start={start_coord}, goal={goal_coord}, "
+            f"lane_x={lane_x}, route={routes[shuttle]}"
+        )
 
     print("Shuttles:", shuttles)
     print("Behaviors:", behaviors)
 
-    for shuttle in shuttles:
-        print(f"Shuttle {shuttle} route: {routes[shuttle]}")
-
     while True:
         all_done = True
-        for shuttle in shuttles:
-            phase = route_phase[shuttle]
 
-            if phase >= len(routes[shuttle]):
+        for shuttle in shuttles:
+            #1. next phase if needed
+            advance_phase_if_needed(shuttle, routes, route_phase)
+
+            # 2. if shuttle is in goal point, move to next shuttle
+            if route_phase[shuttle] >= len(routes[shuttle]):
                 continue
 
             all_done = False
 
-            neighbor_distance = find_closest_neighbor(shuttle, shuttles)
-            new_speed = logic.find_velocity(behaviors[shuttle],
-                                            neighbor_distance)
+            # 3. get new current target
+            phase = route_phase[shuttle]
             current_target = routes[shuttle][phase]
 
-            # Jos ollaan jo waypointissa, siirrytään seuraavaan vaiheeseen
-            if distance_to_point(shuttle, current_target) <= GOAL_TOLERANCE:
-                route_phase[shuttle] += 1
+            # 4. find speed based on traffic
+            new_speed, neighbor_distance = choose_speed(
+                shuttle_id=shuttle,
+                shuttles=shuttles,
+                current_target=current_target,
+                behavior_type=behaviors[shuttle]
+            )
 
-                if route_phase[shuttle] >= len(routes[shuttle]):
-                    print(f"Shuttle {shuttle} reached final goal.")
-                    continue
+            # 5. send new movement command
+            move_to_point(shuttle, current_target, new_speed)
 
-                phase = route_phase[shuttle]
-                current_target = routes[shuttle][phase]
-
-            # Lähetä komento vain kerran per vaihe
-            if command_sent_for_phase[shuttle] != phase:
-                move_to_point(shuttle, current_target, new_speed)
-                command_sent_for_phase[shuttle] = phase
+            dist_text = "inf" if neighbor_distance == float("inf") else f"{neighbor_distance:.3f}"
+            occupied_text = point_is_occupied(current_target, shuttle, shuttles)
 
             print(
                 f"shuttle={shuttle}, "
                 f"behavior={behaviors[shuttle]}, "
                 f"phase={phase + 1}/{len(routes[shuttle])}, "
-                f"dist={neighbor_distance:.3f}, "
+                f"forward_dist={dist_text}, "
+                f"occupied={occupied_text}, "
                 f"speed={new_speed:.3f}, "
                 f"target=({current_target[0]:.3f}, {current_target[1]:.3f})"
             )
