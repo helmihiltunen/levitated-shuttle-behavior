@@ -14,22 +14,22 @@ import random
 
 #Parameters
 TOTAL_SHUTTLES = 16
-PUSHER_RATIO = 0.75
+PUSHER_RATIO = 0.5
 LOOP_DELAY = 0.001
 BASE_SPEED = 0.2
 
 PASSIVE_SAFE_DISTANCE = 0.30
-PASSIVE_CAUTION_DISTANCE = 0.15
-PASSIVE_STOP_DISTANCE = 0.08
+PASSIVE_CAUTION_DISTANCE = 0.20
+PASSIVE_STOP_DISTANCE = 0.15
 
 PUSHER_SAFE_DISTANCE = 0.18
-PUSHER_CAUTION_DISTANCE = 0.08
-PUSHER_STOP_DISTANCE = 0.04
+PUSHER_CAUTION_DISTANCE = 0.15
+PUSHER_STOP_DISTANCE = 0.13
 
-WAYPOINT_BLOCK_DISTANCE = 0.06
-SAME_LANE_THRESHOLD = 0.08
+WAYPOINT_BLOCK_DISTANCE = 0.16
+SAME_LANE_THRESHOLD = 0.14
 
-ASSIGNMENT_MODE = "even"   # "even" or "random"
+ASSIGNMENT_MODE = "random"   # "even" or "random"
 MAX_ACCEL = 1.0
 GOAL_TOLERANCE = 0.01
 CMD_LABEL = 1
@@ -233,13 +233,19 @@ def distance_to_point(shuttle_id, point):
 
 
 def get_directional_lane_x(start_coord, goal_coord):
-    #assigning lane for movement along y axis
-    start_x, _ = start_coord
+    _, start_y = start_coord
+    _, goal_y = goal_coord
 
-    if start_x <= X_COL_2:
+    if goal_y < start_y:
         return X_COL_2
 
-    return X_COL_3
+    if goal_y > start_y:
+        return X_COL_3
+
+    start_x, _ = start_coord
+    if abs(start_x - X_COL_2) <= abs(start_x - X_COL_3):
+        return X_COL_2
+    return X_COL_
 
 
 def move_to_point(shuttle_id, target, speed):
@@ -386,8 +392,11 @@ def main():
 
     routes = {}
     route_phase = {}
+    finished_shuttles = set()
 
     for shuttle in shuttles:
+        if shuttle in finished_shuttles:
+            continue
         actual_start_coord = get_xy(shuttle)
         goal_coord = goals[shuttle]["goal_coord"]
 
@@ -410,8 +419,11 @@ def main():
             #1. next phase if needed
             advance_phase_if_needed(shuttle, routes, route_phase)
 
-            # 2. if shuttle is in goal point, move to next shuttle
+            # 2. if shuttle is in goal point add it to finished shuttles
+            # move to next shuttle
             if route_phase[shuttle] >= len(routes[shuttle]):
+                finished_shuttles.add(shuttle)
+                move_to_point(shuttle, get_xy(shuttle), 0.01)
                 continue
 
             all_done = False
