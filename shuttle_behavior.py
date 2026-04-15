@@ -13,25 +13,26 @@ import math
 import random
 
 #Parameters
-TOTAL_SHUTTLES = 8
-PUSHER_RATIO = 0.5
-LOOP_DELAY = 0.01
+TOTAL_SHUTTLES = 2
+PUSHER_RATIO = 0
+#LOOP_DELAY = 0.01
 BASE_SPEED = 0.2
 
-PASSIVE_SAFE_DISTANCE = 0.30
-PASSIVE_CAUTION_DISTANCE = 0.20
-PASSIVE_STOP_DISTANCE = 0.15
+SHUTTLE_SIZE = 0.12
+PASSIVE_SAFE_DISTANCE = 0.30 + SHUTTLE_SIZE
+PASSIVE_CAUTION_DISTANCE = 0.20 + SHUTTLE_SIZE
+PASSIVE_STOP_DISTANCE = 0.15 + SHUTTLE_SIZE
 
-PUSHER_SAFE_DISTANCE = 0.18
-PUSHER_CAUTION_DISTANCE = 0.15
-PUSHER_STOP_DISTANCE = 0.13
+PUSHER_SAFE_DISTANCE = 0.18 + SHUTTLE_SIZE
+PUSHER_CAUTION_DISTANCE = 0.15 + SHUTTLE_SIZE
+PUSHER_STOP_DISTANCE = 0.13 + SHUTTLE_SIZE
 
-WAYPOINT_BLOCK_DISTANCE = 0.10
+WAYPOINT_BLOCK_DISTANCE = 0.10 + SHUTTLE_SIZE
 SAME_LANE_THRESHOLD = 0.08
 
 ASSIGNMENT_MODE = "random"   # "even" or "random"
 MAX_ACCEL = 1.0
-GOAL_TOLERANCE = 0.01
+GOAL_TOLERANCE = 0.02
 CMD_LABEL = 1
 
 SEGMENT_SIZE = 0.24
@@ -45,10 +46,6 @@ X_COL_4 = OFFSET + 3 * SEGMENT_SIZE
 
 # Start and goal rows
 SPECIAL_ROWS = [0, 1, 6, 7, 12, 13, 18, 19]
-
-
-WAYPOINT_BLOCK_DISTANCE = 0.12
-SAME_LANE_THRESHOLD = 0.08
 
 def row_to_y(row_index):
     return row_index * SEGMENT_SIZE + OFFSET
@@ -165,6 +162,16 @@ def tile_to_coord(tile_id):
         raise ValueError(f"Unsupported tile_id: {tile_id}")
 
 # Start tile number: Goal tile number for 8 and 16 bots
+START_GOAL_2 = {
+    1: 53,
+    49: 5,
+}
+START_GOAL_4 = {
+    1: 53,
+    2: 54,
+    49: 5,
+    50: 6,
+}
 START_GOAL_8 = {
     1: 53,
     2: 54,
@@ -186,12 +193,16 @@ START_GOAL_16 = {
 
 def get_start_goal_pairs(total_shuttles):
     #Choosing right start and goal points for the shuttle count
-    if total_shuttles == 8:
+    if total_shuttles == 2:
+        return START_GOAL_2
+    elif total_shuttles == 4:
+        return START_GOAL_4
+    elif total_shuttles == 8:
         return START_GOAL_8
     elif total_shuttles == 16:
         return START_GOAL_16
     else:
-        raise ValueError("Only 8 or 16 shuttles supported")
+        raise ValueError("Only 2, 4, 8 or 16 shuttles supported")
 
 
 def assign_goals(shuttles, total_shuttles):
@@ -259,7 +270,7 @@ def get_directional_lane_x(start_coord, goal_coord):
     start_x, _ = start_coord
     if abs(start_x - X_COL_2) <= abs(start_x - X_COL_3):
         return X_COL_2
-    return X_COL_
+    return X_COL_3
 
 
 def move_to_point(shuttle_id, target, speed):
@@ -286,9 +297,6 @@ def build_route(start_coord, goal_coord):
 
     lane_x = get_directional_lane_x(start_coord, goal_coord)
 
-    lane_offset = (random.random() - 0.5) * 0.04
-    lane_x += lane_offset
-
     wp1 = (lane_x, start_y)
     wp2 = (lane_x, goal_y)
     wp3 = (goal_x, goal_y)
@@ -306,6 +314,13 @@ def build_route(start_coord, goal_coord):
 
     return route
 
+def current_waypoint_free(shuttle_id, routes, route_phase, shuttles):
+    phase = route_phase[shuttle_id]
+    if phase >= len(routes[shuttle_id]):
+        return True
+
+    current_target = routes[shuttle_id][phase]
+    return not point_is_occupied(current_target, shuttle_id, shuttles)
 
 def advance_phase_if_needed(shuttle_id, routes, route_phase):
     #Assigning new waypoint if shuttle has reached previous one
@@ -353,9 +368,6 @@ def find_closest_forward_neighbor(current_shuttle_id, shuttles, current_target):
         if lateral_distance > SAME_LANE_THRESHOLD:
             continue
 
-        if abs(rel_x) > 0.10:
-            continue
-
         distance = math.hypot(rel_x, rel_y)
 
         if distance < min_forward_distance:
@@ -391,6 +403,41 @@ def critical_zone_holder(shuttles):
             return shuttle_id
     return None
 
+def point_to_segment_distance(px, py, ax, ay, bx, by):
+    abx = bx - ax
+    aby = by - ay
+    apx = px - ax
+    apy = py - ay
+
+    ab_len_sq = abx * abx + aby * aby
+    if ab_len_sq < 1e-12:
+        return math.hypot(px - ax, py - ay)
+
+    t = (apx * abx + apy * aby) / ab_len_sq
+    t = max(0.0, min(1.0, t))
+
+    closest_x = ax + t * abx
+    closest_y = ay + t * aby
+
+    return math.hypot(px - closest_x, py - closest_y)
+
+def path_is_clear(shuttle_id, target, shuttles, clearance):
+    sx, sy = get_xy(shuttle_id)
+    tx, ty = target
+
+    for other_id in shuttles:
+        if other_id == shuttle_id:
+            continue
+
+        ox, oy = get_xy(other_id)
+
+        dist_to_path = point_to_segment_distance(ox, oy, sx, sy, tx, ty)
+        if dist_to_path < clearance:
+            return False
+
+    return True
+
+
 
 def next_waypoint_free(shuttle_id, routes, route_phase, shuttles):
     phase = route_phase[shuttle_id]
@@ -403,8 +450,36 @@ def next_waypoint_free(shuttle_id, routes, route_phase, shuttles):
 
 
 def allowed_to_move(shuttle_id, shuttles, routes, route_phase, current_target):
+    if point_is_occupied(current_target, shuttle_id, shuttles):
+        return False
+
+    if not path_is_clear(
+        shuttle_id,
+        current_target,
+        shuttles,
+        clearance=SHUTTLE_SIZE + 0.06
+    ):
+        return False
+
+    holder = critical_zone_holder(shuttles)
+    if path_enters_critical_zone(shuttle_id, current_target):
+        if holder is not None and holder != shuttle_id:
+            return False
+
     return True
 
+def path_enters_critical_zone(shuttle_id, target):
+    sx, sy = get_xy(shuttle_id)
+    tx, ty = target
+
+    samples = 10
+    for i in range(samples + 1):
+        t = i / samples
+        x = sx + t * (tx - sx)
+        y = sy + t * (ty - sy)
+        if is_in_critical_zone((x, y)):
+            return True
+    return False
 
 def all_stuck(shuttles, previous_positions):
     moved = False
@@ -417,6 +492,19 @@ def all_stuck(shuttles, previous_positions):
             break
 
     return not moved
+
+def choose_yielding_shuttle(active_shuttles, behaviors, routes, route_phase):
+    passive_shuttles = [s for s in active_shuttles if behaviors[s] == "passive"]
+    pusher_shuttles = [s for s in active_shuttles if behaviors[s] == "pusher"]
+
+    # passive väistää aina ennen pusheria
+    candidate_group = passive_shuttles if passive_shuttles else pusher_shuttles
+
+    # saman ryhmän sisällä väistää se, joka on kauimpana targetista
+    return max(
+        candidate_group,
+        key=lambda s: distance_to_point(s, routes[s][route_phase[s]])
+    )
 
 def choose_speed(shuttle_id, shuttles, current_target, behavior_type, logic, routes, route_phase):
     #choosing speed based on whether next waypoint is occupied
@@ -505,9 +593,14 @@ def main():
                 route_phase=route_phase
             )
 
-            # 5. send new movement command if it isn't zero
-            if new_speed > 1e-6:
+            # 5. send new movement command if it isn't zero and shuttle is
+            # allowed to move
+            can_move = allowed_to_move(shuttle, shuttles, routes, route_phase, current_target)
+
+            if can_move and new_speed > 1e-6:
                 move_to_point(shuttle, current_target, new_speed)
+            else:
+                move_to_point(shuttle, get_xy(shuttle), 0.01)
 
             dist_text = "inf" if neighbor_distance == float("inf") else f"{neighbor_distance:.3f}"
             occupied_text = point_is_occupied(current_target, shuttle, shuttles)
@@ -533,7 +626,12 @@ def main():
                 if stuck_start_time is None:
                     stuck_start_time = time.time()
                 elif time.time() - stuck_start_time >= DEADLOCK_TIME_SEC:
-                    yielding_shuttle = min(active_shuttles)
+                    yielding_shuttle = choose_yielding_shuttle(
+                        active_shuttles,
+                        behaviors,
+                        routes,
+                        route_phase
+                    )
                     if route_phase[yielding_shuttle] < len(
                             routes[yielding_shuttle]):
                         current_target = routes[yielding_shuttle][
@@ -549,7 +647,7 @@ def main():
         for shuttle in shuttles:
             previous_positions[shuttle] = get_xy(shuttle)
 
-        time.sleep(LOOP_DELAY)
+        #time.sleep(LOOP_DELAY)
 
 
 if __name__ == "__main__":
