@@ -161,7 +161,7 @@ def tile_to_coord(tile_id):
     else:
         raise ValueError(f"Unsupported tile_id: {tile_id}")
 
-# Start tile number: Goal tile number for 8 and 16 bots
+# Start tile number: Goal tile number for 2, 4, 8 and 16 bots
 START_GOAL_2 = {
     1: 53,
     49: 5,
@@ -190,13 +190,24 @@ START_GOAL_16 = {
     53: 1, 54: 2, 55: 3, 56: 4,
 }
 
+START_GOAL_2_TEST = {
+    2 : 6,
+    49: 53
+}
+
+START_GOAL_4_TEST = {
+    2: 6,
+    49: 53,
+    3: 7,
+    52: 56
+}
 
 def get_start_goal_pairs(total_shuttles):
     #Choosing right start and goal points for the shuttle count
     if total_shuttles == 2:
-        return START_GOAL_2
+        return START_GOAL_2_TEST
     elif total_shuttles == 4:
-        return START_GOAL_4
+        return START_GOAL_4_TEST
     elif total_shuttles == 8:
         return START_GOAL_8
     elif total_shuttles == 16:
