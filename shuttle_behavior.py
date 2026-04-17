@@ -16,7 +16,7 @@ import csv
 
 
 DEBUG = 1
-CONFIG = 1
+CONFIG = 2
 #Parameters
 
 #TODO: change the goals
@@ -32,17 +32,28 @@ STARTS_GOALS_1 = {
 }
 
 STARTS_GOALS_1 = {
-    2: 54,      # 1
+    2: 54,
     5: 50,
     29: 3,
     7: 53,
     28: 1,
-    3: 52,    # 6
+    3: 52,
     6: 55,
     4: 8
 }
 
-if CONFIG = 1:
+STARTS_GOALS_2 = {
+    1: 56,
+    8: 49,
+    3: 52,
+    6: 53,
+    2: 55,
+    7: 50,
+    4: 51,
+    5: 54
+}
+
+if CONFIG == 1:
     STARTS_GOALS = STARTS_GOALS_1
 else:
     STARTS_GOALS = STARTS_GOALS_2
