@@ -11,34 +11,44 @@ from pmclib import pmc_types as pm
 import time
 import math
 import random
+import os
+import csv
+
 
 DEBUG = 1
-
+CONFIG = 1
 #Parameters
 
 #TODO: change the goals
-STARTS_GOALS = {
-    1: 53,      # 1
-    2: 54,
-    3: 55,
-    4: 56,
-    49: 5,
-    50: 6,    # 6
-    51: 7,
-    52: 8,
-#     9: 22,
-#     10: 0,
-#     11: 23,   # 11
-#     12: 24,
-#     13: 21,
-#     14: 22,
-#     15: 0,
-#     16: 0     # 16
+STARTS_GOALS_1 = {
+    2: 54,      # 1
+    5: 50,
+    29: 3,
+    7: 53,
+    28: 1,
+    3: 52,    # 6
+    6: 55,
+    4: 8
 }
 
+STARTS_GOALS_1 = {
+    2: 54,      # 1
+    5: 50,
+    29: 3,
+    7: 53,
+    28: 1,
+    3: 52,    # 6
+    6: 55,
+    4: 8
+}
+
+if CONFIG = 1:
+    STARTS_GOALS = STARTS_GOALS_1
+else:
+    STARTS_GOALS = STARTS_GOALS_2
+
 TOTAL_SHUTTLES = len(STARTS_GOALS)
-PUSHER_RATIO = 0.25
-#LOOP_DELAY = 0.01
+PUSHER_RATIO = 1
 BASE_SPEED = 0.3
 
 SHUTTLE_SIZE = 0.12
@@ -95,14 +105,15 @@ CRITICAL_Y_MAX = row_to_y(13) + CRITICAL_MARGIN
 
 DEADLOCK_DISTANCE_EPS = 0.02
 DEADLOCK_TIME_SEC = 2.0
+COLLISION_DISTANCE = SHUTTLE_SIZE
 
+RESULTS_FILE = "simulation_results_notfinal.csv"
 
 class ConnectToSim:
     #Establish connection to simulation
     def __init__(self):
         sys.auto_search_and_connect_to_pmc()
         sys.gain_mastership()
-
 
 class BehaviorLogic:
     def assign_behaviors(self, shuttles, pusher_ratio, mode="even"):
@@ -141,9 +152,6 @@ class BehaviorLogic:
 
     def find_velocity(self, behavior_type, neighbor_distance):
     #Finding movement speed based on behavior logic
-        # if neighbor_distance == float("inf"):
-        #     return BASE_SPEED
-
         if behavior_type == "passive":
             if neighbor_distance < PASSIVE_STOP_DISTANCE:
                 return 0.0
@@ -567,6 +575,44 @@ def choose_speed(shuttle_id, shuttles, current_target, behavior_type, logic, rou
 
     return speed, neighbor_distance
 
+def write_results_to_csv(filename, row):
+    file_exists = os.path.isfile(filename)
+
+    with open(filename, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+
+        if not file_exists:
+            writer.writerow([
+                "total_bots",
+                "pusher_ratio",
+                "pushers",
+                "loops_until_end",
+                "unique_collisions",
+                "stuck_shuttles"
+            ])
+
+        writer.writerow(row)
+
+def count_pushers(behaviors):
+    return sum(1 for behavior in behaviors.values() if behavior == "pusher")
+
+
+def get_collision_pairs(shuttles, collision_distance=COLLISION_DISTANCE):
+    collision_pairs = set()
+
+    for i in range(len(shuttles)):
+        for j in range(i + 1, len(shuttles)):
+            shuttle_a = shuttles[i]
+            shuttle_b = shuttles[j]
+
+            pos_a = get_xy(shuttle_a)
+            pos_b = get_xy(shuttle_b)
+
+            if distance_between_points(pos_a, pos_b) < collision_distance:
+                collision_pairs.add(tuple(sorted((shuttle_a, shuttle_b))))
+
+    return collision_pairs
+
 def main():
     connection = ConnectToSim()
 
@@ -586,8 +632,12 @@ def main():
     routes = {}
     route_phase = {}
     finished_shuttles = set()
+    stuck_shuttles = set()
     previous_positions = {}
     stuck_start_time = None
+
+    loop_count = 0
+    collision_pairs_seen = set()
 
     for shuttle in shuttles:
         if shuttle in finished_shuttles:
@@ -611,6 +661,7 @@ def main():
         previous_positions[shuttle] = get_xy(shuttle)
 
     while True:
+        loop_count += 1
         all_done = True
 
         targets = {shuttle: get_xy(shuttle) for shuttle in shuttles}
@@ -671,40 +722,51 @@ def main():
         for shuttle in shuttles:
             move_to_point(shuttle, targets[shuttle], speeds[shuttle])
 
+        current_collision_pairs = get_collision_pairs(shuttles)
+        collision_pairs_seen.update(current_collision_pairs)
+
         if all_done:
             print("All shuttles reached their goals.")
+
+            result_row = [
+                len(shuttles),
+                PUSHER_RATIO,
+                count_pushers(behaviors),
+                loop_count,
+                len(collision_pairs_seen),
+                len(stuck_shuttles)
+            ]
+
+            write_results_to_csv(RESULTS_FILE, result_row)
             break
 
         active_shuttles = [s for s in shuttles if s not in finished_shuttles]
-###
-        # if active_shuttles:
-        #     if all_stuck(active_shuttles, previous_positions):
-        #         if stuck_start_time is None:
-        #             stuck_start_time = time.time()
-        #         elif time.time() - stuck_start_time >= DEADLOCK_TIME_SEC:
-        #             yielding_shuttle = choose_yielding_shuttle(
-        #                 active_shuttles,
-        #                 behaviors,
-        #                 routes,
-        #                 route_phase
-        #             )
-        #             if route_phase[yielding_shuttle] < len(
-        #                     routes[yielding_shuttle]):
-        #                 current_target = routes[yielding_shuttle][
-        #                     route_phase[yielding_shuttle]]
-        #                 if distance_to_point(yielding_shuttle,
-        #                                      current_target) > GOAL_TOLERANCE:
-        #                     move_to_point(yielding_shuttle,
-        #                                   get_xy(yielding_shuttle), 0.01)
-        #             stuck_start_time = None
-        #     else:
-        #         stuck_start_time = None
+
+        if active_shuttles:
+            if all_stuck(active_shuttles, previous_positions):
+                if stuck_start_time is None:
+                    stuck_start_time = time.time()
+                elif time.time() - stuck_start_time >= DEADLOCK_TIME_SEC:
+                    stuck_shuttles = set(active_shuttles)
+
+                    print("Simulation stopped: no shuttle moved within the deadlock time limit.")
+
+                    result_row = [
+                        len(shuttles),
+                        PUSHER_RATIO,
+                        count_pushers(behaviors),
+                        loop_count,
+                        len(collision_pairs_seen),
+                        len(stuck_shuttles)
+                    ]
+
+                    write_results_to_csv(RESULTS_FILE, result_row)
+                    break
+            else:
+                stuck_start_time = None
 
         for shuttle in shuttles:
             previous_positions[shuttle] = get_xy(shuttle)
-
-        #time.sleep(LOOP_DELAY)
-
 
 if __name__ == "__main__":
     main()
