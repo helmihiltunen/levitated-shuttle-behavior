@@ -15,21 +15,42 @@ import random
 DEBUG = 1
 
 #Parameters
-TOTAL_SHUTTLES = 4
+
+#TODO: change the goals
+STARTS_GOALS = {
+    1: 53,      # 1
+    2: 54,
+    3: 55,
+    4: 56,
+    49: 5,
+    50: 6,    # 6
+    51: 7,
+    52: 8,
+#     9: 22,
+#     10: 0,
+#     11: 23,   # 11
+#     12: 24,
+#     13: 21,
+#     14: 22,
+#     15: 0,
+#     16: 0     # 16
+}
+
+TOTAL_SHUTTLES = len(STARTS_GOALS)
 PUSHER_RATIO = 0.25
 #LOOP_DELAY = 0.01
-BASE_SPEED = 0.2
+BASE_SPEED = 0.3
 
 SHUTTLE_SIZE = 0.12
 PASSIVE_SAFE_DISTANCE = 0.30 + SHUTTLE_SIZE
-PASSIVE_CAUTION_DISTANCE = 0.20 + SHUTTLE_SIZE
-PASSIVE_STOP_DISTANCE = 0.15 + SHUTTLE_SIZE
+PASSIVE_CAUTION_DISTANCE = 0.24 + SHUTTLE_SIZE
+PASSIVE_STOP_DISTANCE = 0.06 + SHUTTLE_SIZE
 
-MIN_Y_GAP = int(SHUTTLE_SIZE * 1.5)
+MIN_Y_GAP = int(SHUTTLE_SIZE * 1.0)
 
 PUSHER_SAFE_DISTANCE = 0.48 + SHUTTLE_SIZE
-PUSHER_CAUTION_DISTANCE = 0.15 + SHUTTLE_SIZE
-PUSHER_STOP_DISTANCE = 0.13 + SHUTTLE_SIZE
+PUSHER_CAUTION_DISTANCE = 0.12 + SHUTTLE_SIZE
+PUSHER_STOP_DISTANCE = 0.12 + SHUTTLE_SIZE
 
 WAYPOINT_BLOCK_DISTANCE = 0.10 + SHUTTLE_SIZE
 SAME_LANE_THRESHOLD = 0.08
@@ -41,6 +62,17 @@ CMD_LABEL = 1
 
 SEGMENT_SIZE = 0.24
 OFFSET = 0.12
+
+
+MIN_COL1_TILE_ID = 1
+MAX_COL1_TILE_ID = 8
+MIN_COL2_TILE_ID = 9
+MAX_COL2_TILE_ID = 28
+MIN_COL3_TILE_ID = 29
+MAX_COL3_TILE_ID = 48
+MIN_COL4_TILE_ID = 49
+MAX_COL4_TILE_ID = 56
+
 
 # X-coordinates for each column
 X_COL_1 = OFFSET
@@ -145,65 +177,26 @@ def distance_between_points(a, b):
 
 def tile_to_coord(tile_id):
     #Find coordinates for the middle point of each tile
-    if 1 <= tile_id <= 4:
-        row = SPECIAL_ROWS[tile_id - 1]
+    if MIN_COL1_TILE_ID <= tile_id <= MAX_COL1_TILE_ID:
+        row = SPECIAL_ROWS[tile_id - MIN_COL1_TILE_ID]
         return (X_COL_1, row_to_y(row))
 
-    elif 5 <= tile_id <= 12:
-        row = tile_id - 5
+    elif MIN_COL2_TILE_ID <= tile_id <= MAX_COL2_TILE_ID:
+        row = tile_id - MIN_COL2_TILE_ID
         return (X_COL_2, row_to_y(row))
 
-    elif 13 <= tile_id <= 20:
-        row = tile_id - 13
+    elif MIN_COL3_TILE_ID <= tile_id <= MAX_COL3_TILE_ID:
+        row = tile_id - MIN_COL3_TILE_ID
         return (X_COL_3, row_to_y(row))
 
-    elif 21 <= tile_id <= 24:
-        row = SPECIAL_ROWS[tile_id - 21]
+    elif MIN_COL4_TILE_ID <= tile_id <= MAX_COL4_TILE_ID:
+        row = SPECIAL_ROWS[tile_id - MIN_COL4_TILE_ID]
         return (X_COL_4, row_to_y(row))
 
     else:
         raise ValueError(f"Unsupported tile_id: {tile_id}")
 
-# Start tile number: Goal tile number for 2, 4, 8 and 16 bots
-START_GOAL_2 = {
-    1: 53,
-    49: 5,
-}
-START_GOAL_4 = {
-    1: 53,
-    2: 54,
-    49: 5,
-    50: 6,
-}
-START_GOAL_8 = {
-    1: 53,
-    2: 54,
-    3: 55,
-    4: 56,
-    49: 5,
-    50: 6,
-    51: 7,
-    52: 8,
-}
 
-START_GOAL_16 = {
-    1: 53, 2: 54, 3: 55, 4: 56,
-    5: 49, 6: 50, 7: 51, 8: 52,
-    49: 5, 50: 6, 51: 7, 52: 8,
-    53: 1, 54: 2, 55: 3, 56: 4,
-}
-
-START_GOAL_2_TEST = {
-    2 : 6,
-    49: 53
-}
-
-START_GOAL_4_TEST = {
-    2: 24,
-    4: 22,
-    1: 23,
-    3: 21
-}
 
 def get_start_goal_pairs(total_shuttles):
     #Choosing right start and goal points for the shuttle count
@@ -214,15 +207,15 @@ def get_start_goal_pairs(total_shuttles):
     elif total_shuttles == 8:
         return START_GOAL_8
     elif total_shuttles == 16:
-        return START_GOAL_16
+        return STARTS_GOALS
     else:
         raise ValueError("Only 2, 4, 8 or 16 shuttles supported")
 
 
 def assign_goals(shuttles, total_shuttles):
     #assigning goal coordinates for current shuttle
-    mapping = get_start_goal_pairs(total_shuttles)
-
+    # mapping = get_start_goal_pairs(total_shuttles)
+    mapping = STARTS_GOALS
     start_tiles = list(mapping.keys())
     start_tile_coords = {tile: tile_to_coord(tile) for tile in start_tiles}
 
@@ -230,6 +223,8 @@ def assign_goals(shuttles, total_shuttles):
     goals = {}
 
     candidates = []
+
+    # Trying to find the shuttle closest to the start
     for shuttle_id in shuttles:
         sx, sy = get_xy(shuttle_id)
         for start_tile, coord in start_tile_coords.items():
@@ -261,6 +256,7 @@ def assign_goals(shuttles, total_shuttles):
 
         assigned_shuttles.add(shuttle_id)
         assigned_tiles.add(start_tile)
+
 
     return start_info, goals
 
@@ -319,14 +315,6 @@ def build_route(start_coord, goal_coord):
 
     route = [wp1, wp2, wp3]
 
-
-    #if math.dist((start_x, start_y), wp1) > GOAL_TOLERANCE:
-     #   route.append(wp1)
-    #if math.dist(route[-1] if route else (start_x, start_y), wp2) > GOAL_TOLERANCE:
-     #   route.append(wp2)
-
-    #if math.dist(route[-1] if route else (start_x, start_y), wp3) > GOAL_TOLERANCE:
-     #   route.append(wp3)
 
     return route
 
@@ -502,9 +490,6 @@ def next_waypoint_free(shuttle_id, routes, route_phase, shuttles):
 
 def allowed_to_move(shuttle_id, shuttles, routes, route_phase, current_target):
     # if point_is_occupied(current_target, shuttle_id, shuttles):
-    #     if shuttle_id == DEBUG:
-    #         print('point is occupied')
-    #     return False
 
 
     if is_vertical_move(shuttle_id, current_target):
@@ -529,19 +514,6 @@ def allowed_to_move(shuttle_id, shuttles, routes, route_phase, current_target):
                 print('path is clear')
 
             return False
-    holder = critical_zone_holder(shuttles)
-    # if path_enters_critical_zone(shuttle_id, current_target):
-    #     if holder is not None and holder != shuttle_id:
-    #         if shuttle_id == DEBUG:
-    #             print('path enters critical zone')
-    #
-    #         return False
-
-    # if shuttle_id == DEBUG:
-    #     print('path_is_clear', path_is_clear(shuttle_id, current_target, shuttles, clearance=0.08),
-    #           'path_enters_critical_zone', path_enters_critical_zone(shuttle_id, current_target),
-    #           'vertical_lane_clearance_ok', vertical_lane_clearance_ok(shuttle_id, shuttles, current_target, min_spacing=MIN_Y_GAP)
-    #     )
     return True
 
 def path_enters_critical_zone(shuttle_id, target):
@@ -641,7 +613,10 @@ def main():
     while True:
         all_done = True
 
-        for i, shuttle in enumerate(shuttles):
+        targets = {shuttle: get_xy(shuttle) for shuttle in shuttles}
+        speeds = {shuttle: 0 for shuttle in shuttles}
+
+        for shuttle in shuttles:
             #1. next phase if needed
             advance_phase_if_needed(shuttle, routes, route_phase)
             if shuttle == DEBUG: print(f'route {routes[shuttle]} route_phase {route_phase[shuttle]}')
@@ -674,10 +649,11 @@ def main():
             can_move = allowed_to_move(shuttle, shuttles, routes, route_phase, current_target)
             if shuttle == DEBUG: print(f'can move {can_move}')
 
+
             if can_move and new_speed > 1e-6:
-                move_to_point(shuttle, current_target, new_speed)
-            else:
-                move_to_point(shuttle, get_xy(shuttle), 0.0)
+                targets[shuttle] = current_target
+                speeds[shuttle] = new_speed
+
 
             dist_text = "inf" if neighbor_distance == float("inf") else f"{neighbor_distance:.3f}"
             occupied_text = point_is_occupied(current_target, shuttle, shuttles)
@@ -692,6 +668,8 @@ def main():
                     f"speed={new_speed:.3f}, "
                     f"target=({current_target[0]:.3f}, {current_target[1]:.3f})"
                 )
+        for shuttle in shuttles:
+            move_to_point(shuttle, targets[shuttle], speeds[shuttle])
 
         if all_done:
             print("All shuttles reached their goals.")
