@@ -19,18 +19,6 @@ DEBUG = 1
 CONFIG = 2
 #Parameters
 
-#TODO: change the goals
-STARTS_GOALS_1 = {
-    2: 54,      # 1
-    5: 50,
-    29: 3,
-    7: 53,
-    28: 1,
-    3: 52,    # 6
-    6: 55,
-    4: 8
-}
-
 STARTS_GOALS_1 = {
     2: 54,
     5: 50,
@@ -59,7 +47,7 @@ else:
     STARTS_GOALS = STARTS_GOALS_2
 
 TOTAL_SHUTTLES = len(STARTS_GOALS)
-PUSHER_RATIO = 1
+PUSHER_RATIO = 1.00
 BASE_SPEED = 0.3
 
 SHUTTLE_SIZE = 0.12
@@ -76,7 +64,7 @@ PUSHER_STOP_DISTANCE = 0.12 + SHUTTLE_SIZE
 WAYPOINT_BLOCK_DISTANCE = 0.10 + SHUTTLE_SIZE
 SAME_LANE_THRESHOLD = 0.08
 
-ASSIGNMENT_MODE = "even"   # "even" or "random"
+ASSIGNMENT_MODE = "random"   # "even" or "random"
 MAX_ACCEL = 1.0
 GOAL_TOLERANCE = 0.02
 CMD_LABEL = 1
@@ -118,7 +106,7 @@ DEADLOCK_DISTANCE_EPS = 0.02
 DEADLOCK_TIME_SEC = 2.0
 COLLISION_DISTANCE = SHUTTLE_SIZE
 
-RESULTS_FILE = "simulation_results_notfinal.csv"
+RESULTS_FILE = "simulation_results_2nd_config.csv"
 
 class ConnectToSim:
     #Establish connection to simulation
@@ -589,11 +577,12 @@ def choose_speed(shuttle_id, shuttles, current_target, behavior_type, logic, rou
 def write_results_to_csv(filename, row):
     file_exists = os.path.isfile(filename)
 
-    with open(filename, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+    with open(filename, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f, delimiter=";")
 
         if not file_exists:
             writer.writerow([
+                "config",
                 "total_bots",
                 "pusher_ratio",
                 "pushers",
@@ -763,6 +752,7 @@ def main():
                     print("Simulation stopped: no shuttle moved within the deadlock time limit.")
 
                     result_row = [
+                        CONFIG,
                         len(shuttles),
                         PUSHER_RATIO,
                         count_pushers(behaviors),
