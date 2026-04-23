@@ -13,10 +13,15 @@ import math
 import random
 import os
 import csv
-
+import numpy as np
+import mss
+import threading
+import cv2
 
 DEBUG = 1
 CONFIG = 2
+Recording = False
+
 #Parameters
 
 STARTS_GOALS_1 = {
@@ -613,7 +618,38 @@ def get_collision_pairs(shuttles, collision_distance=COLLISION_DISTANCE):
 
     return collision_pairs
 
+def screen_record():
+    global recording
+
+    monitor = {"top": 0, "left": 0, "width": 800, "height": 600}
+    output_filename = "partial_recording.mp4"
+    fps = 20.0
+
+    with mss.mss() as sct:
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(
+            output_filename,
+            fourcc,
+            fps,
+            (monitor["width"], monitor["height"])
+        )
+
+        print("Recording started.")
+
+        while Recording:
+            img = np.array(sct.grab(monitor))
+            frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+            out.write(frame)
+
+        out.release()
+        print("Recording stopped.")
+
 def main():
+    global recording
+
+    recorder_thread = threading.Thread(target=screen_record, daemon=True)
+    recorder_thread.start()
+
     connection = ConnectToSim()
 
     xbot_ids = bot.get_xbot_ids()
