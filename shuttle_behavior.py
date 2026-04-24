@@ -20,7 +20,8 @@ import cv2
 
 DEBUG = 1
 CONFIG = 2
-Recording = False
+recording = True
+
 
 #Parameters
 
@@ -111,7 +112,7 @@ DEADLOCK_DISTANCE_EPS = 0.02
 DEADLOCK_TIME_SEC = 2.0
 COLLISION_DISTANCE = SHUTTLE_SIZE
 
-RESULTS_FILE = "simulation_results_2nd_config.csv"
+RESULTS_FILE = "simulation_results_notfinal.csv"
 
 class ConnectToSim:
     #Establish connection to simulation
@@ -618,10 +619,9 @@ def get_collision_pairs(shuttles, collision_distance=COLLISION_DISTANCE):
 
     return collision_pairs
 
-def screen_record():
+def screen_record(monitor):
     global recording
 
-    monitor = {"top": 0, "left": 0, "width": 800, "height": 600}
     output_filename = "partial_recording.mp4"
     fps = 20.0
 
@@ -634,161 +634,144 @@ def screen_record():
             (monitor["width"], monitor["height"])
         )
 
-        print("Recording started.")
+        try:
+            while recording:
+                img = np.array(sct.grab(monitor))
+                frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                out.write(frame)
+        finally:
+            out.release()
+            print("Video saved properly")
 
-        while Recording:
-            img = np.array(sct.grab(monitor))
-            frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            out.write(frame)
-
-        out.release()
-        print("Recording stopped.")
 
 def main():
     global recording
 
-    recorder_thread = threading.Thread(target=screen_record, daemon=True)
+    monitor = {'top': 95, 'left': 1078, 'width': 117, 'height': 520}
+
+    recorder_thread = threading.Thread(
+        target=screen_record,
+        args=(monitor,),
+        daemon=True
+    )
     recorder_thread.start()
 
-    connection = ConnectToSim()
+    try:
+            connection = ConnectToSim()
 
-    xbot_ids = bot.get_xbot_ids()
+            xbot_ids = bot.get_xbot_ids()
 
-    if xbot_ids.PmcRtn != pm.PMCRTN.ALLOK:
-        print(f"Failed to get xbot IDs: {xbot_ids.PmcRtn}")
-        return
+            if xbot_ids.PmcRtn != pm.PMCRTN.ALLOK:
+                print(f"Failed to get xbot IDs: {xbot_ids.PmcRtn}")
+                return
 
-    shuttle_ids = list(xbot_ids.xbot_ids_array[:xbot_ids.xbot_count])
-    shuttles = shuttle_ids[:TOTAL_SHUTTLES]
+            shuttle_ids = list(xbot_ids.xbot_ids_array[:xbot_ids.xbot_count])
+            shuttles = shuttle_ids[:TOTAL_SHUTTLES]
 
-    logic = BehaviorLogic()
-    behaviors = logic.assign_behaviors(shuttles, PUSHER_RATIO, ASSIGNMENT_MODE)
-    start_info, goals = assign_goals(shuttles, TOTAL_SHUTTLES)
+            logic = BehaviorLogic()
+            behaviors = logic.assign_behaviors(shuttles, PUSHER_RATIO, ASSIGNMENT_MODE)
+            start_info, goals = assign_goals(shuttles, TOTAL_SHUTTLES)
 
-    routes = {}
-    route_phase = {}
-    finished_shuttles = set()
-    stuck_shuttles = set()
-    previous_positions = {}
-    stuck_start_time = None
+            routes = {}
+            route_phase = {}
+            finished_shuttles = set()
+            stuck_shuttles = set()
+            previous_positions = {}
+            stuck_start_time = None
 
-    loop_count = 0
-    collision_pairs_seen = set()
+            loop_count = 0
+            collision_pairs_seen = set()
 
-    for shuttle in shuttles:
-        if shuttle in finished_shuttles:
-            continue
-        actual_start_coord = get_xy(shuttle)
-        goal_coord = goals[shuttle]["goal_coord"]
+            for shuttle in shuttles:
+                if shuttle in finished_shuttles:
+                    continue
+                actual_start_coord = get_xy(shuttle)
+                goal_coord = goals[shuttle]["goal_coord"]
 
-        routes[shuttle] = build_route(actual_start_coord, goal_coord)
-        route_phase[shuttle] = 0
+                routes[shuttle] = build_route(actual_start_coord, goal_coord)
+                route_phase[shuttle] = 0
 
-        lane_x = get_directional_lane_x(actual_start_coord, goal_coord)
-        print(
-            f"Shuttle {shuttle}: "
-            f"actual_start={actual_start_coord}, goal={goal_coord}, "
-            f"lane_x={lane_x}, route={routes[shuttle]}")
-
-    print("Shuttles:", shuttles)
-    print("Behaviors:", behaviors)
-
-    for shuttle in shuttles:
-        previous_positions[shuttle] = get_xy(shuttle)
-
-    while True:
-        loop_count += 1
-        all_done = True
-
-        targets = {shuttle: get_xy(shuttle) for shuttle in shuttles}
-        speeds = {shuttle: 0 for shuttle in shuttles}
-
-        for shuttle in shuttles:
-            #1. next phase if needed
-            advance_phase_if_needed(shuttle, routes, route_phase)
-            if shuttle == DEBUG: print(f'route {routes[shuttle]} route_phase {route_phase[shuttle]}')
-            # 2. if shuttle is in goal point add it to finished shuttles
-            # move to next shuttle
-            if route_phase[shuttle] >= len(routes[shuttle]):
-                finished_shuttles.add(shuttle)
-                move_to_point(shuttle, get_xy(shuttle), 0.01)
-                continue
-
-            all_done = False
-
-            # 3. get new current target
-            phase = route_phase[shuttle]
-            current_target = routes[shuttle][phase]
-            if shuttle == DEBUG: print(f'current target {current_target}')
-            # 4. find speed based on traffic
-            new_speed, neighbor_distance = choose_speed(
-                shuttle_id=shuttle,
-                shuttles=shuttles,
-                current_target=current_target,
-                behavior_type=behaviors[shuttle],
-                logic=logic,
-                routes=routes,
-                route_phase=route_phase
-            )
-
-            # 5. send new movement command if it isn't zero and shuttle is
-            # allowed to move
-            can_move = allowed_to_move(shuttle, shuttles, routes, route_phase, current_target)
-            if shuttle == DEBUG: print(f'can move {can_move}')
-
-
-            if can_move and new_speed > 1e-6:
-                targets[shuttle] = current_target
-                speeds[shuttle] = new_speed
-
-
-            dist_text = "inf" if neighbor_distance == float("inf") else f"{neighbor_distance:.3f}"
-            occupied_text = point_is_occupied(current_target, shuttle, shuttles)
-
-            if shuttle == DEBUG:
+                lane_x = get_directional_lane_x(actual_start_coord, goal_coord)
                 print(
-                    f"shuttle={shuttle}, "
-                    f"behavior={behaviors[shuttle]}, "
-                    f"phase={phase + 1}/{len(routes[shuttle])}, "
-                    f"forward_dist={dist_text}, "
-                    f"occupied={occupied_text}, "
-                    f"speed={new_speed:.3f}, "
-                    f"target=({current_target[0]:.3f}, {current_target[1]:.3f})"
-                )
-        for shuttle in shuttles:
-            move_to_point(shuttle, targets[shuttle], speeds[shuttle])
+                    f"Shuttle {shuttle}: "
+                    f"actual_start={actual_start_coord}, goal={goal_coord}, "
+                    f"lane_x={lane_x}, route={routes[shuttle]}")
 
-        current_collision_pairs = get_collision_pairs(shuttles)
-        collision_pairs_seen.update(current_collision_pairs)
+            print("Shuttles:", shuttles)
+            print("Behaviors:", behaviors)
 
-        if all_done:
-            print("All shuttles reached their goals.")
+            for shuttle in shuttles:
+                previous_positions[shuttle] = get_xy(shuttle)
 
-            result_row = [
-                len(shuttles),
-                PUSHER_RATIO,
-                count_pushers(behaviors),
-                loop_count,
-                len(collision_pairs_seen),
-                len(stuck_shuttles)
-            ]
+            while True:
+                loop_count += 1
+                all_done = True
 
-            write_results_to_csv(RESULTS_FILE, result_row)
-            break
+                targets = {shuttle: get_xy(shuttle) for shuttle in shuttles}
+                speeds = {shuttle: 0 for shuttle in shuttles}
 
-        active_shuttles = [s for s in shuttles if s not in finished_shuttles]
+                for shuttle in shuttles:
+                    #1. next phase if needed
+                    advance_phase_if_needed(shuttle, routes, route_phase)
+                    if shuttle == DEBUG: print(f'route {routes[shuttle]} route_phase {route_phase[shuttle]}')
+                    # 2. if shuttle is in goal point add it to finished shuttles
+                    # move to next shuttle
+                    if route_phase[shuttle] >= len(routes[shuttle]):
+                        finished_shuttles.add(shuttle)
+                        move_to_point(shuttle, get_xy(shuttle), 0.01)
+                        continue
 
-        if active_shuttles:
-            if all_stuck(active_shuttles, previous_positions):
-                if stuck_start_time is None:
-                    stuck_start_time = time.time()
-                elif time.time() - stuck_start_time >= DEADLOCK_TIME_SEC:
-                    stuck_shuttles = set(active_shuttles)
+                    all_done = False
 
-                    print("Simulation stopped: no shuttle moved within the deadlock time limit.")
+                    # 3. get new current target
+                    phase = route_phase[shuttle]
+                    current_target = routes[shuttle][phase]
+                    if shuttle == DEBUG: print(f'current target {current_target}')
+                    # 4. find speed based on traffic
+                    new_speed, neighbor_distance = choose_speed(
+                        shuttle_id=shuttle,
+                        shuttles=shuttles,
+                        current_target=current_target,
+                        behavior_type=behaviors[shuttle],
+                        logic=logic,
+                        routes=routes,
+                        route_phase=route_phase
+                    )
+
+                    # 5. send new movement command if it isn't zero and shuttle is
+                    # allowed to move
+                    can_move = allowed_to_move(shuttle, shuttles, routes, route_phase, current_target)
+                    if shuttle == DEBUG: print(f'can move {can_move}')
+
+
+                    if can_move and new_speed > 1e-6:
+                        targets[shuttle] = current_target
+                        speeds[shuttle] = new_speed
+
+
+                    dist_text = "inf" if neighbor_distance == float("inf") else f"{neighbor_distance:.3f}"
+                    occupied_text = point_is_occupied(current_target, shuttle, shuttles)
+
+                    if shuttle == DEBUG:
+                        print(
+                            f"shuttle={shuttle}, "
+                            f"behavior={behaviors[shuttle]}, "
+                            f"phase={phase + 1}/{len(routes[shuttle])}, "
+                            f"forward_dist={dist_text}, "
+                            f"occupied={occupied_text}, "
+                            f"speed={new_speed:.3f}, "
+                            f"target=({current_target[0]:.3f}, {current_target[1]:.3f})"
+                        )
+                for shuttle in shuttles:
+                    move_to_point(shuttle, targets[shuttle], speeds[shuttle])
+
+                current_collision_pairs = get_collision_pairs(shuttles)
+                collision_pairs_seen.update(current_collision_pairs)
+
+                if all_done:
+                    print("All shuttles reached their goals.")
 
                     result_row = [
-                        CONFIG,
                         len(shuttles),
                         PUSHER_RATIO,
                         count_pushers(behaviors),
@@ -799,11 +782,39 @@ def main():
 
                     write_results_to_csv(RESULTS_FILE, result_row)
                     break
-            else:
-                stuck_start_time = None
 
-        for shuttle in shuttles:
-            previous_positions[shuttle] = get_xy(shuttle)
+                active_shuttles = [s for s in shuttles if s not in finished_shuttles]
+
+                if active_shuttles:
+                    if all_stuck(active_shuttles, previous_positions):
+                        if stuck_start_time is None:
+                            stuck_start_time = time.time()
+                        elif time.time() - stuck_start_time >= DEADLOCK_TIME_SEC:
+                            stuck_shuttles = set(active_shuttles)
+
+                            print("Simulation stopped: no shuttle moved within the deadlock time limit.")
+
+                            result_row = [
+                                CONFIG,
+                                len(shuttles),
+                                PUSHER_RATIO,
+                                count_pushers(behaviors),
+                                loop_count,
+                                len(collision_pairs_seen),
+                                len(stuck_shuttles)
+                            ]
+
+                            write_results_to_csv(RESULTS_FILE, result_row)
+                            break
+                    else:
+                        stuck_start_time = None
+
+                for shuttle in shuttles:
+                    previous_positions[shuttle] = get_xy(shuttle)
+
+    finally:
+        recording = False
+        recorder_thread.join(timeout=2)
 
 if __name__ == "__main__":
     main()
