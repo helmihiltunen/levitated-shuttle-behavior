@@ -8,6 +8,7 @@ Author: Helmi Hiltunen
 from pmclib import xbot_commands as bot
 from pmclib import system_commands as sys
 from pmclib import pmc_types as pm
+from datetime import datetime
 import time
 import math
 import random
@@ -19,7 +20,7 @@ import threading
 import cv2
 
 DEBUG = 1
-CONFIG = 2
+CONFIG = 1
 recording = True
 
 
@@ -30,10 +31,10 @@ STARTS_GOALS_1 = {
     5: 50,
     29: 3,
     7: 53,
-    28: 1,
-    3: 52,
-    6: 55,
-    4: 8
+#    28: 1,
+#    3: 52,
+#    6: 55,
+#    4: 8
 }
 
 STARTS_GOALS_2 = {
@@ -53,7 +54,7 @@ else:
     STARTS_GOALS = STARTS_GOALS_2
 
 TOTAL_SHUTTLES = len(STARTS_GOALS)
-PUSHER_RATIO = 1.00
+PUSHER_RATIO = 0.50
 BASE_SPEED = 0.3
 
 SHUTTLE_SIZE = 0.12
@@ -61,7 +62,7 @@ PASSIVE_SAFE_DISTANCE = 0.30 + SHUTTLE_SIZE
 PASSIVE_CAUTION_DISTANCE = 0.24 + SHUTTLE_SIZE
 PASSIVE_STOP_DISTANCE = 0.06 + SHUTTLE_SIZE
 
-MIN_Y_GAP = int(SHUTTLE_SIZE * 1.0)
+MIN_Y_GAP = SHUTTLE_SIZE * 1.0
 
 PUSHER_SAFE_DISTANCE = 0.48 + SHUTTLE_SIZE
 PUSHER_CAUTION_DISTANCE = 0.12 + SHUTTLE_SIZE
@@ -70,7 +71,8 @@ PUSHER_STOP_DISTANCE = 0.12 + SHUTTLE_SIZE
 WAYPOINT_BLOCK_DISTANCE = 0.10 + SHUTTLE_SIZE
 SAME_LANE_THRESHOLD = 0.08
 
-ASSIGNMENT_MODE = "random"   # "even" or "random"
+ASSIGNMENT_MODE = "manual"   # "even", "random" or "manual"
+MANUAL_PUSHERS = [2, 4]
 MAX_ACCEL = 1.0
 GOAL_TOLERANCE = 0.02
 CMD_LABEL = 1
@@ -144,8 +146,19 @@ class BehaviorLogic:
 
             pusher_ids = set(shuttles[i] for i in indices)
 
+        elif mode == "manual":
+            pusher_ids = set(MANUAL_PUSHERS)
+
+            for shuttle_id in shuttles:
+                if shuttle_id in pusher_ids:
+                    behaviors[shuttle_id] = "pusher"
+                else:
+                    behaviors[shuttle_id] = "passive"
+
+            return behaviors
+
         else:
-            raise ValueError("mode must be 'even' or 'random'")
+            raise ValueError("mode must be 'even', 'random' or 'manual'")
 
         for shuttle_id in shuttles:
             if shuttle_id in pusher_ids:
@@ -622,7 +635,8 @@ def get_collision_pairs(shuttles, collision_distance=COLLISION_DISTANCE):
 def screen_record(monitor):
     global recording
 
-    output_filename = "partial_recording.mp4"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_filename = f"partial_recording_just_testing_{timestamp}.mp4"
     fps = 20.0
 
     with mss.mss() as sct:
@@ -678,6 +692,7 @@ def main():
             stuck_shuttles = set()
             previous_positions = {}
             stuck_start_time = None
+            actual_pusher_ratio = count_pushers(behaviors) / len(shuttles)
 
             loop_count = 0
             collision_pairs_seen = set()
@@ -772,8 +787,9 @@ def main():
                     print("All shuttles reached their goals.")
 
                     result_row = [
+                        CONFIG,
                         len(shuttles),
-                        PUSHER_RATIO,
+                        actual_pusher_ratio,
                         count_pushers(behaviors),
                         loop_count,
                         len(collision_pairs_seen),
@@ -797,7 +813,7 @@ def main():
                             result_row = [
                                 CONFIG,
                                 len(shuttles),
-                                PUSHER_RATIO,
+                                actual_pusher_ratio,
                                 count_pushers(behaviors),
                                 loop_count,
                                 len(collision_pairs_seen),
