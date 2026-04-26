@@ -27,14 +27,10 @@ recording = True
 #Parameters
 
 STARTS_GOALS_1 = {
-    2: 54,
-    5: 50,
-    29: 3,
-    7: 53,
-#    28: 1,
-#    3: 52,
-#    6: 55,
-#    4: 8
+    1: 23,
+    2: 24,
+    3: 21,
+    4: 22,
 }
 
 STARTS_GOALS_2 = {
@@ -72,7 +68,7 @@ WAYPOINT_BLOCK_DISTANCE = 0.10 + SHUTTLE_SIZE
 SAME_LANE_THRESHOLD = 0.08
 
 ASSIGNMENT_MODE = "manual"   # "even", "random" or "manual"
-MANUAL_PUSHERS = [2, 4]
+MANUAL_PUSHERS = [3]
 MAX_ACCEL = 1.0
 GOAL_TOLERANCE = 0.02
 CMD_LABEL = 1
@@ -82,13 +78,13 @@ OFFSET = 0.12
 
 
 MIN_COL1_TILE_ID = 1
-MAX_COL1_TILE_ID = 8
-MIN_COL2_TILE_ID = 9
-MAX_COL2_TILE_ID = 28
-MIN_COL3_TILE_ID = 29
-MAX_COL3_TILE_ID = 48
-MIN_COL4_TILE_ID = 49
-MAX_COL4_TILE_ID = 56
+MAX_COL1_TILE_ID = 4
+MIN_COL2_TILE_ID = 5
+MAX_COL2_TILE_ID = 12
+MIN_COL3_TILE_ID = 13
+MAX_COL3_TILE_ID = 20
+MIN_COL4_TILE_ID = 21
+MAX_COL4_TILE_ID = 24
 
 
 # X-coordinates for each column
@@ -98,7 +94,7 @@ X_COL_3 = OFFSET + 2 * SEGMENT_SIZE
 X_COL_4 = OFFSET + 3 * SEGMENT_SIZE
 
 # Start and goal rows
-SPECIAL_ROWS = [0, 1, 6, 7, 12, 13, 18, 19]
+SPECIAL_ROWS = [0, 1, 6, 7]
 
 def row_to_y(row_index):
     return row_index * SEGMENT_SIZE + OFFSET
@@ -114,7 +110,7 @@ DEADLOCK_DISTANCE_EPS = 0.02
 DEADLOCK_TIME_SEC = 2.0
 COLLISION_DISTANCE = SHUTTLE_SIZE
 
-RESULTS_FILE = "simulation_results_notfinal.csv"
+RESULTS_FILE = "simulation_results_4bot_24segment.csv"
 
 class ConnectToSim:
     #Establish connection to simulation
@@ -593,6 +589,10 @@ def choose_speed(shuttle_id, shuttles, current_target, behavior_type, logic, rou
 
     return speed, neighbor_distance
 
+def get_pusher_ids(behaviors):
+    return sorted([shuttle_id for shuttle_id, behavior in behaviors.items()
+                   if behavior == "pusher"])
+
 def write_results_to_csv(filename, row):
     file_exists = os.path.isfile(filename)
 
@@ -605,6 +605,7 @@ def write_results_to_csv(filename, row):
                 "total_bots",
                 "pusher_ratio",
                 "pushers",
+                "pusher_ids",
                 "loops_until_end",
                 "unique_collisions",
                 "stuck_shuttles"
@@ -636,7 +637,7 @@ def screen_record(monitor):
     global recording
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_filename = f"partial_recording_just_testing_{timestamp}.mp4"
+    output_filename = f"partial_recording{timestamp}.mp4"
     fps = 20.0
 
     with mss.mss() as sct:
@@ -661,7 +662,7 @@ def screen_record(monitor):
 def main():
     global recording
 
-    monitor = {'top': 95, 'left': 1078, 'width': 117, 'height': 520}
+    monitor = {'top': 93, 'left': 998, 'width': 273, 'height': 525}
 
     recorder_thread = threading.Thread(
         target=screen_record,
@@ -791,6 +792,7 @@ def main():
                         len(shuttles),
                         actual_pusher_ratio,
                         count_pushers(behaviors),
+                        ",".join(map(str, get_pusher_ids(behaviors))),
                         loop_count,
                         len(collision_pairs_seen),
                         len(stuck_shuttles)
@@ -815,6 +817,7 @@ def main():
                                 len(shuttles),
                                 actual_pusher_ratio,
                                 count_pushers(behaviors),
+                                ",".join(map(str, get_pusher_ids(behaviors))),
                                 loop_count,
                                 len(collision_pairs_seen),
                                 len(stuck_shuttles)
