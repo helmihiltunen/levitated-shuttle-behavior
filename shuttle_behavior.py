@@ -20,7 +20,7 @@ import threading
 import cv2
 
 DEBUG = 1
-CONFIG = 1
+CONFIG = 3
 recording = True
 
 
@@ -34,20 +34,25 @@ STARTS_GOALS_1 = {
 }
 
 STARTS_GOALS_2 = {
-    1: 56,
-    8: 49,
-    3: 52,
-    6: 53,
-    2: 55,
-    7: 50,
-    4: 51,
-    5: 54
+    1: 23,
+    2: 24,
+    21: 3,
+    22: 4,
+}
+
+STARTS_GOALS_3 = {
+    2: 24,
+    4: 22,
+    21: 3,
+    23: 1,
 }
 
 if CONFIG == 1:
     STARTS_GOALS = STARTS_GOALS_1
-else:
+elif CONFIG ==2:
     STARTS_GOALS = STARTS_GOALS_2
+else:
+    STARTS_GOALS = STARTS_GOALS_3
 
 TOTAL_SHUTTLES = len(STARTS_GOALS)
 PUSHER_RATIO = 0.50
@@ -68,7 +73,7 @@ WAYPOINT_BLOCK_DISTANCE = 0.10 + SHUTTLE_SIZE
 SAME_LANE_THRESHOLD = 0.08
 
 ASSIGNMENT_MODE = "manual"   # "even", "random" or "manual"
-MANUAL_PUSHERS = [3]
+MANUAL_PUSHERS = [1, 2, 3, 4]
 MAX_ACCEL = 1.0
 GOAL_TOLERANCE = 0.02
 CMD_LABEL = 1
